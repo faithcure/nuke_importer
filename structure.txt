@@ -1,0 +1,57 @@
+nuke_importer/
+│
+├── .venv/                  # Virtual environment TEMP
+│
+├── config/
+│   ├── __init__.py
+│   └── settings.py        # Global configuration settings
+│
+├── core/
+│   ├── __init__.py
+│   ├── plate_info.py      # Plate metadata handling
+│   └── scanner.py         # Core scanning functionality
+│
+├── library/               # External libraries
+│   ├── __init__.py
+│   ├── filter_panel.py    # Filter controls
+│   ├── folder_tree.py     # Directory tree widget
+│   ├── main_window.py     # Main application window
+│   ├── plate_list.py      # Plate list widget
+│   └── thumbnail_viewer.py # Thumbnail preview widget
+│
+├── utils/
+│   ├── __init__.py
+│   ├── file_utils.py      # File handling utilities
+│   └── nuke_utils.py      # Nuke-specific utilities
+│
+├── __init__.py           # Package initialization
+├── 3dw.py               # 3D viewer functionality
+├── main.py              # Application entry point
+├── setup.py             # Installation configuration
+├── requirements.txt     # Project dependencies
+└── structure.txt        # Project structure documentation
+
+Key Components:
+
+1. Core Components:
+   - Plate information handling
+   - Directory scanning
+   - File metadata extraction
+
+2. Library Components:
+   - Filter panel for search and filtering
+   - Folder tree for navigation
+   - Main application window
+   - Plate list for displaying assets
+   - Thumbnail viewer with 3D support
+
+3. Utility Components:
+   - File handling utilities
+   - Nuke-specific utilities
+   - 3D viewer functionality
+
+Development Environment:
+- Python with virtual environment (.venv)
+- Nuke Python API integration
+- PySide2 for UI components
+- Open3D for 3D model handling
