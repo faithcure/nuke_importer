@@ -1,4 +1,4 @@
-from PySide2.QtWidgets import QLabel, QWidget, QVBoxLayout
+from PySide2.QtWidgets import QLabel, QWidget, QVBoxLayout, QTreeWidget
 from PySide2.QtCore import Qt
 from PySide2.QtGui import QPixmap, QImage
 import os
@@ -114,11 +114,6 @@ class ThumbnailViewer(QWidget):
             print(f"Error loading image thumbnail: {str(e)}")
             self.clear_thumbnail()
 
-    def set_thumbnail_exr(self, file_path):
-        """Set thumbnail for EXR files"""
-        print("Set thumbnail exr clicked")
-        self.clear_thumbnail()
-
     def set_thumbnail_3D(self, file_path):
         """Set thumbnail for 3D files"""
         if not file_path or not os.path.exists(file_path):
@@ -138,6 +133,69 @@ class ThumbnailViewer(QWidget):
                 }
             """)
         else:
+            self.clear_thumbnail()
+
+    def set_thumbnail_exr(self, file_path):
+        """Set thumbnail for EXR files by rendering to JPG using Nuke"""
+        import nuke
+        import tempfile
+        import os
+
+        try:
+            # Create temp directory if it doesn't exist
+            temp_dir = os.path.join(tempfile.gettempdir(), 'nuke_importer_thumbs')
+            os.makedirs(temp_dir, exist_ok=True)
+
+            # Get plate name from TreeWidget item
+            selected_items = self.parent().findChild(QTreeWidget).selectedItems()
+            if selected_items:
+                plate_name = selected_items[0].text(0)  # Get plate name from first column
+                jpg_filename = f"{plate_name}_temp.jpg"
+            else:
+                # Fallback if no selection
+                jpg_filename = f"{os.path.splitext(os.path.basename(file_path))[0]}_temp.jpg"
+            jpg_path = os.path.join(temp_dir, jpg_filename)
+
+            # Create temporary Nuke nodes
+            temp_read = nuke.createNode('Read', inpanel=False)
+            temp_read['file'].fromUserText(file_path)
+
+            # Create Write node with explicit path settings
+            temp_write = nuke.createNode('Write', inpanel=False)
+            temp_write['file'].setValue(jpg_path.replace('\\', '/'))  # Convert to forward slashes
+            temp_write['file_type'].setValue('jpeg')
+            temp_write['_jpeg_quality'].setValue(0.8)
+            temp_write['channels'].setValue('rgb')
+            temp_write['create_directories'].setValue(True)
+            temp_write.setInput(0, temp_read)
+
+            # Verify path exists
+            if not os.path.exists(os.path.dirname(jpg_path)):
+                os.makedirs(os.path.dirname(jpg_path), exist_ok=True)
+
+            # Force Nuke to recognize the Write node path
+            nuke.script_directory()  # Refresh Nuke's path cache
+
+            # Execute the render
+            frame = int(temp_read['first'].value())
+            print(frame)
+            nuke.executeMultiple(temp_write, frame, continueOnError=True, showProgress=False)
+
+            # Set the thumbnail from the rendered JPG
+            self.set_image_thumbnail(jpg_path)
+
+            # Clean up Nuke nodes
+            nuke.delete(temp_write)
+            nuke.delete(temp_read)
+
+            # Delete temporary JPG file after loading
+            try:
+                os.remove(jpg_path)
+            except:
+                pass
+
+        except Exception as e:
+            print(f"Error creating EXR thumbnail: {str(e)}")
             self.clear_thumbnail()
 
     def clear_thumbnail(self):
