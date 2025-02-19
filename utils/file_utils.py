@@ -1,5 +1,7 @@
 # nuke_importer/utils/file_utils.py
 import os
+import re
+import math
 import sys
 import subprocess
 from PySide2.QtWidgets import QProgressBar
@@ -13,24 +15,52 @@ def format_size(size_bytes):
         size_bytes /= 1024
     return f"{size_bytes:.1f} TB"
 
-def get_sequence_size(folder_path, base_name=None, frame_range=None, ext=None):
-    """Calculate total size of a sequence"""
+
+def get_sequence_size(file_path, base_name=None, frame_range=None, extension=None):
+    """
+    Calculate size of a file or folder
+
+    Args:
+        file_path (str): Path to the file or sequence
+        base_name (str, optional): Not used in this implementation
+        frame_range (str, optional): Used to determine if it's a sequence
+        extension (str, optional): Not used in this implementation
+
+    Returns:
+        str: Formatted size string (e.g. "1.5 GB")
+    """
     try:
-        if frame_range == "Single Frame" or not frame_range:
-            return format_size(os.path.getsize(folder_path))
+        # If it's a sequence (has frame range), calculate folder size
+        if frame_range and "-" in str(frame_range):
+            folder_path = os.path.dirname(file_path)
+            total_size = 0
 
-        total_size = 0
-        start_frame, end_frame = map(int, frame_range.split('-'))
+            # Sum up sizes of all files in the folder
+            for f in os.listdir(folder_path):
+                file_path = os.path.join(folder_path, f)
+                if os.path.isfile(file_path):
+                    total_size += os.path.getsize(file_path)
+        else:
+            # Single file
+            if os.path.exists(file_path):
+                total_size = os.path.getsize(file_path)
+            else:
+                return "0.0 B"
 
-        for frame in range(start_frame, end_frame + 1):
-            frame_path = os.path.join(os.path.dirname(folder_path),
-                                    f"{base_name}.{frame:04d}{ext}")
-            if os.path.exists(frame_path):
-                total_size += os.path.getsize(frame_path)
+        # Convert to human readable format
+        if total_size == 0:
+            return "0.0 B"
 
-        return format_size(total_size)
-    except:
-        return "N/A"
+        size_names = ['B', 'KB', 'MB', 'GB', 'TB']
+        i = int(math.floor(math.log(total_size, 1024)))
+        p = math.pow(1024, i)
+        s = round(total_size / p, 2)
+
+        return f"{s} {size_names[i]}"
+
+    except Exception as e:
+        print(f"Error calculating size: {str(e)}")
+        return "0.0 B"
 
 def setup_status_bar():
     """Create and configure status bar"""

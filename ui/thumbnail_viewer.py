@@ -179,7 +179,7 @@ class ThumbnailViewer(QWidget):
             # Execute the render
             frame = int(temp_read['first'].value())
             print(frame)
-            nuke.executeMultiple(temp_write, frame, continueOnError=True, showProgress=False)
+            nuke.execute(temp_write, frame,  continueOnError=True)
 
             # Set the thumbnail from the rendered JPG
             self.set_image_thumbnail(jpg_path)
