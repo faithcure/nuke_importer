@@ -1,26 +1,58 @@
 # nuke_importer/ui/plate_list.py
+from PySide2.QtGui import QColor
+from PySide2.QtWidgets import (QTreeWidget, QTreeWidgetItem, QMenu,
+                              QDialog, QVBoxLayout, QTextEdit, QApplication)
+from PySide2.QtCore import Qt
+import nuke
 import os
-import re
 import sys
 import subprocess
-from PySide2.QtWidgets import QTreeWidget, QTreeWidgetItem, QMenu
-from PySide2.QtCore import Qt
+import json
+import re
 from .filter_panel import FilterPanel
 from ..config.settings import PLATE_LIST_COLUMNS, COLUMN_WIDTHS, STYLES, SUPPORTED_FORMATS
 from ..core.plate_info import PlateInfo
 from ..utils.file_utils import get_sequence_size, reveal_in_explorer
 from ..utils.nuke_utils import create_read_node, create_readgeo_node,set_root_frame_range
 
+
+class MetadataDialog(QDialog):
+    def __init__(self, metadata, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Plate Metadata")
+        self.setMinimumSize(400, 300)
+
+        layout = QVBoxLayout(self)
+
+        # Create text edit for metadata display
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+
+        # Format metadata as pretty JSON
+        formatted_metadata = json.dumps(metadata, indent=2)
+        text_edit.setText(formatted_metadata)
+
+        layout.addWidget(text_edit)
+
 class PlateList(QTreeWidget):
     def __init__(self, current_first=1, current_last=100):
         super().__init__()
         self.current_first = current_first
         self.current_last = current_last
+        self.wrong_plates = set()
+
+        # Config dosyası için sabit yol
+        self.config_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config')
+        if not os.path.exists(self.config_dir):
+            os.makedirs(self.config_dir)
+        self.wrong_plates_file = os.path.join(self.config_dir, 'wrong_plates.json')
+
         self.setup_ui()
         self.setup_connections()
+        self.load_wrong_plates()  # Wrong plates'leri başlangıçta yükle
 
     def setup_ui(self):
-        """Setup the plate list UI"""
+        """Set up the plate list UI"""
         self.setHeaderLabels(PLATE_LIST_COLUMNS)
         for col, width in COLUMN_WIDTHS.items():
             self.setColumnWidth(col, width)
@@ -138,7 +170,7 @@ class PlateList(QTreeWidget):
         if status_bar:
             status_bar.setFormat("Ready")
             status_bar.setValue(100)
-
+        self.apply_wrong_plates_highlight()
         print(f"Scan complete. Processed {scanned_files} files.")
 
     def _process_file(self, root, file, plates):
@@ -230,27 +262,6 @@ class PlateList(QTreeWidget):
             # Handle as single frame if no frame number pattern is found
             self._handle_single_frame(file_path, os.path.splitext(file)[0], version)
 
-    def _handle_sequence(self, root, file, frame_match, display_name, version, plates):
-        """Handle sequence file"""
-        base_name = file[:frame_match.start()]
-        frame_num = int(frame_match.group(1))
-        ext = frame_match.group(2)
-
-        plate_key = (root, base_name, version)
-        seq_path = os.path.normpath(os.path.join(root, f"{base_name}.%04d.{ext}"))
-
-        if plate_key not in plates:
-            plates[plate_key] = {
-                'min_frame': frame_num,
-                'max_frame': frame_num,
-                'ext': ext,
-                'path': seq_path,
-                'display_name': display_name
-            }
-        else:
-            plates[plate_key]['min_frame'] = min(plates[plate_key]['min_frame'], frame_num)
-            plates[plate_key]['max_frame'] = max(plates[plate_key]['max_frame'], frame_num)
-
     def _handle_single_frame(self, file_path, display_name, version):
         """Handle single frame file"""
         plate_info = PlateInfo(file_path)
@@ -315,58 +326,258 @@ class PlateList(QTreeWidget):
                 print(f"Error adding sequence {info['path']}: {str(e)}")
 
     def show_context_menu(self, position):
-        """Show context menu for plate list items"""
-        item = self.itemAt(position)
-        if item:
-            menu = QMenu()
-            import_local = menu.addAction("Import with Localization")
-            import_normal = menu.addAction("Just Import")
-            menu.addSeparator()
-            reveal_action = menu.addAction("To Explorer")
+        """Show enhanced context menu for plate list items"""
+        items = self.selectedItems()
+        if not items:
+            return
 
-            import_local.triggered.connect(
-                lambda: self.import_single_plate(item, True))
-            import_normal.triggered.connect(
-                lambda: self.import_single_plate(item, False))
-            reveal_action.triggered.connect(
-                lambda: self.reveal_in_explorer(item))
+        menu = QMenu()
 
-            menu.exec_(self.viewport().mapToGlobal(position))
+        # Import actions
+        import_normal = menu.addAction("Just Import")
 
-    def import_single_plate(self, item, localize=False):
-        """Import a single plate"""
+        # First divider
+        menu.addSeparator()
+
+        # File operations
+        reveal_action = menu.addAction("To Explorer")
+        open_action = menu.addAction("Open")
+        copy_path_action = menu.addAction("Copy Path")
+
+        # Second divider
+        menu.addSeparator()
+
+        # Plate management
+        wrong_plate_action = menu.addAction("Toggle Wrong Plate")
+        wrong_plate_action.setCheckable(True)
+
+        # Get the first selected item's path
+        first_item_path = items[0].data(0, Qt.UserRole)
+        wrong_plate_action.setChecked(first_item_path in self.wrong_plates)
+
+        show_metadata_action = menu.addAction("Show Metadata")
+
+        # Connect actions - lambda fonksiyonlarını düzeltelim
+        import_normal.triggered.connect(
+            lambda checked=False: self.import_selected_plates())
+        reveal_action.triggered.connect(
+            lambda checked=False: self.reveal_in_explorer(items[0]))
+        open_action.triggered.connect(
+            lambda checked=False: self.open_file(items[0]))
+        copy_path_action.triggered.connect(
+            lambda checked=False: self.copy_path(items[0]))
+        wrong_plate_action.triggered.connect(
+            lambda checked=False: self.toggle_wrong_plate(items[0]))
+        show_metadata_action.triggered.connect(
+            lambda checked=False: self.show_metadata(items[0]))
+
+        menu.exec_(self.viewport().mapToGlobal(position))
+
+    def copy_path(self, item):
+        """Copy file path to clipboard"""
         if not item:
             return
 
+        file_path = item.data(0, Qt.UserRole)
+        QApplication.clipboard().setText(file_path)
+
+    def toggle_wrong_plate(self, item):
+        """Toggle wrong plate status"""
+        if not item:
+            return
+
+        file_path = self.normalize_path(item.data(0, Qt.UserRole))
+
+        if file_path in self.wrong_plates:
+            self.wrong_plates.remove(file_path)
+            for col in range(item.columnCount()):
+                item.setBackground(col, Qt.transparent)
+        else:
+            self.wrong_plates.add(file_path)
+            for col in range(item.columnCount()):
+                item.setBackground(col, QColor(150, 0, 40))
+
+        self.save_wrong_plates()
+        self.save_wrong_plates()
+
+    def show_metadata(self, item):
+        """Show metadata dialog"""
+        if not item:
+            return
+
+        file_path = item.data(0, Qt.UserRole)
+
         try:
-            file_path = item.data(0, Qt.UserRole)
-            frame_range = item.text(2)
-            colorspace = item.text(5)
-            file_ext = item.text(4).lower()
+            # Get basic metadata
+            metadata = {
+                "File Name": os.path.basename(file_path),
+                "Path": file_path,
+                "Size": item.text(6),
+                "Resolution": item.text(3),
+                "Format": item.text(4),
+                "Colorspace": item.text(5),
+                "Frame Range": item.text(2),
+                "Version": item.text(1)
+            }
 
-            # 3D dosyası kontrolü
-            if file_ext in ['.fbx', '.obj', '.abc']:
-                # 3D model import
-                nodes = create_readgeo_node(file_path)
-                if nodes:
-                    print(f"Successfully imported 3D model: {file_path}")
-            else:
-                # Normal image/video import
-                read_node = create_read_node(
-                    file_path,
-                    frame_range=frame_range,
-                    colorspace=colorspace,
-                    localize=localize
-                )
+            # Get additional metadata from Nuke if possible
+            try:
+                temp_node = nuke.createNode('Read', inpanel=False)
+                temp_node['file'].fromUserText(file_path)
 
-                if frame_range != "Single Frame":
-                    start_frame, end_frame = map(int, frame_range.split('-'))
-                    set_root_frame_range(start_frame, end_frame)
+                # Add Nuke-specific metadata
+                metadata.update({
+                    "Pixel Aspect": temp_node.pixelAspect(),
+                    "FPS": temp_node['fps'].value(),
+                    "Original Colorspace": temp_node['colorspace'].value(),
+                    "Premultiplied": temp_node['premultiplied'].value(),
+                    "Input Layer": temp_node['label'].value()
+                })
+
+                nuke.delete(temp_node)
+            except:
+                pass
+
+            # Show dialog
+            dialog = MetadataDialog(metadata, self)
+            dialog.exec_()
 
         except Exception as e:
-            print(f"Error importing plate {item.text(0)}: {str(e)}")
+            print(f"Error showing metadata: {str(e)}")
 
-    # Bu metodu PlateList sınıfına ekleyin
+    def load_wrong_plates(self):
+        """Load wrong plates from config file"""
+        try:
+            if os.path.exists(self.wrong_plates_file):
+                with open(self.wrong_plates_file, 'r') as f:
+                    loaded_plates = json.load(f)
+                    # Normalize loaded paths
+                    self.wrong_plates = set(self.normalize_path(path) for path in loaded_plates)
+                print(f"Wrong plates loaded from: {self.wrong_plates_file}")
+                # Apply highlighting after loading
+                self.apply_wrong_plates_highlight()
+        except Exception as e:
+            print(f"Error loading wrong plates: {str(e)}")
+
+    def apply_wrong_plates_highlight(self):
+        """Apply highlighting to wrong plates"""
+        for i in range(self.topLevelItemCount()):
+            item = self.topLevelItem(i)
+            file_path = self.normalize_path(item.data(0, Qt.UserRole))
+            if file_path in self.wrong_plates:
+                for col in range(item.columnCount()):
+                    item.setBackground(col, QColor(150, 0, 40))
+
+    def import_selected_plates(self):
+        """Import selected plates with organized layout and backdrops"""
+        items = self.selectedItems()
+        if not items:
+            return
+
+        # Grid layout settings
+        spacing = 120  # Node spacing
+        columns = 5  # Maximum nodes per row
+        base_x = 0
+        base_y = 0
+        created_nodes = []
+
+        for idx, item in enumerate(items):
+            try:
+                file_path = item.data(0, Qt.UserRole)
+                folder_path = os.path.dirname(file_path)
+                file_ext = item.text(4).lower()
+
+                # Calculate grid position
+                col = idx % columns
+                row = idx // columns
+                pos_x = base_x + (col * spacing)
+                pos_y = base_y - (row * spacing)
+
+                # Get clean plate name (without extension and pattern)
+                plate_name = os.path.splitext(item.text(0))[0]  # Remove extension
+                # Remove common pattern indicators
+                plate_name = plate_name.replace('####', '').replace('%04d', '')
+                plate_name = plate_name.rstrip('._- ')  # Remove trailing separators
+
+                # Create backdrop first
+                backdrop = nuke.nodes.BackdropNode(
+                    xpos=pos_x - 50,
+                    ypos=pos_y - 50,
+                    bdwidth=180,
+                    bdheight=140,
+                    tile_color=int(0x7533C2FF),  # Purple color
+                    note_font_size=24,
+                    label=plate_name  # Clean plate name
+                )
+
+                # Check if it's a 3D file
+                if file_ext in ['.fbx', '.obj', '.abc']:
+                    node = create_readgeo_node(file_path)
+                    node.setXYpos(pos_x, pos_y)
+                    created_nodes.append(node)
+                else:
+                    for seq in nuke.getFileNameList(folder_path):
+                        read_node = nuke.createNode("Read")
+                        read_node.setXYpos(pos_x, pos_y)
+                        seq_path = os.path.normpath(folder_path + "/" + seq)
+                        read_node.knob("file").fromUserText(seq_path.replace("#", "%04d"))
+                        created_nodes.append(read_node)
+
+                        # Update backdrop size if needed
+                        if len(created_nodes) > 1:
+                            backdrop['bdwidth'].setValue(200)
+
+            except Exception as e:
+                print(f"Error importing plate {item.text(0)}: {str(e)}")
+
+        # Select all created nodes for zooming
+        for node in created_nodes:
+            node['selected'].setValue(True)
+
+        # Zoom to fit all created nodes
+        nuke.zoomToFitSelected()
+
+        # Clear selection after zoom
+        for node in created_nodes:
+            node['selected'].setValue(False)
+
+    def normalize_path(self, path):
+        """Normalize file path for consistent comparison"""
+        if path:
+            # Replace backslashes with forward slashes
+            return os.path.normpath(path).replace('\\', '/')
+        return path
+
+    def save_wrong_plates(self):
+        """Save wrong plates to a config file"""
+        try:
+            # Normalize paths before saving
+            normalized_plates = [self.normalize_path(path) for path in self.wrong_plates]
+            with open(self.wrong_plates_file, 'w') as f:
+                json.dump(normalized_plates, f, indent=4)
+            # print(f"Wrong plates saved to: {self.wrong_plates_file}")
+        except Exception as e:
+            print(f"Error saving wrong plates: {str(e)}")
+
+    def open_file(self, item):
+        """Open file with default application"""
+        if not item:
+            return
+
+        file_path = item.data(0, Qt.UserRole)
+        if not os.path.exists(file_path):
+            return
+
+        try:
+            if sys.platform == 'win32':
+                os.startfile(file_path)
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', file_path])
+            else:
+                subprocess.Popen(['xdg-open', file_path])
+        except Exception as e:
+            print(f"Error opening file: {str(e)}")
+
     def apply_filters(self):
         """Apply filters to the plate list"""
         if not hasattr(self, 'parent'):
@@ -420,70 +631,3 @@ class PlateList(QTreeWidget):
         if item:
             path = os.path.dirname(item.data(0, Qt.UserRole))
             reveal_in_explorer(path)
-
-    def import_plates(self, localize=False, status_bar=None):
-        """Import multiple selected plates"""
-        selected_items = self.selectedItems()
-        if not selected_items:
-            return
-
-        if status_bar:
-            status_bar.setValue(0)
-
-        # Grid layout settings
-        spacing = 80
-        columns = 5
-        base_x = 0
-        base_y = 0
-
-        for idx, item in enumerate(selected_items):
-            try:
-                # Calculate grid position
-                col = idx % columns
-                row = idx // columns
-                pos_x = base_x + (col * spacing)
-                pos_y = base_y - (row * spacing)
-
-                file_path = item.data(0, Qt.UserRole)
-                frame_range = item.text(2)
-                colorspace = item.text(5)
-                file_ext = item.text(4).lower()
-
-                # 3D dosyası kontrolü
-                if file_ext in ['.fbx', '.obj', '.abc']:
-                    # 3D model import with position
-                    nodes = create_readgeo_node(file_path, pos_x, pos_y)
-                    if nodes:
-                        print(f"Successfully imported 3D model: {file_path}")
-                else:
-                    # Normal image/video import
-                    read_node = create_read_node(
-                        file_path,
-                        frame_range=frame_range,
-                        colorspace=colorspace,
-                        localize=localize,
-                        pos_x=pos_x,
-                        pos_y=pos_y
-                    )
-
-                # Set project frame range for first plate (if it's not a 3D file)
-                if idx == 0 and frame_range != "Single Frame" and file_ext not in ['.fbx', '.obj', '.abc']:
-                    start_frame, end_frame = map(int, frame_range.split('-'))
-                    set_root_frame_range(start_frame, end_frame)
-
-                # Update progress
-                if status_bar:
-                    progress = int((idx + 1) / len(selected_items) * 100)
-                    status_bar.setValue(progress)
-                    status_bar.setFormat(f"Importing... {progress}%")
-
-            except Exception as e:
-                print(f"Error importing plate {item.text(0)}: {str(e)}")
-
-        if status_bar:
-            status_bar.setFormat("Ready")
-            status_bar.setValue(100)
-
-        # Reset frame range after import
-        if hasattr(self, 'current_first') and hasattr(self, 'current_last'):
-            set_root_frame_range(self.current_first, self.current_last)
