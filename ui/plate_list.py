@@ -12,9 +12,9 @@ from ..utils.file_utils import get_sequence_size, reveal_in_explorer
 from ..utils.nuke_utils import create_read_node, create_readgeo_node,set_root_frame_range
 
 class PlateList(QTreeWidget):
-    def __init__(self, current_first=1, current_last=100):  
+    def __init__(self, current_first=1, current_last=100):
         super().__init__()
-        self.current_first = current_first 
+        self.current_first = current_first
         self.current_last = current_last
         self.setup_ui()
         self.setup_connections()
@@ -28,7 +28,7 @@ class PlateList(QTreeWidget):
         self.setSelectionMode(self.ExtendedSelection)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.setStyleSheet(STYLES['plate_list'])
-        
+
         # Enable mouse tracking
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
@@ -161,48 +161,75 @@ class PlateList(QTreeWidget):
             self._handle_single_frame(file_path, base_name, version)
             return
 
-        # Geliştirilmiş sekans algılama
-        # Farklı frame numaralandırma formatlarını destekle
+        # Geliştirilmiş sekans algılama - farklı frame numaralandırma formatlarını destekle
         frame_patterns = [
-            r'(\d+)\.([\w]+)$',  # standard: number.ext
-            r'_(\d+)\.([\w]+)$',  # underscore: _number.ext
-            r'\.(\d+)\.([\w]+)$',  # dot: .number.ext
+            # Standard frame patterns
+            r'_(\d+)\.([\w]+)$',  # underscore_number.ext
+            r'\.(\d+)\.([\w]+)$',  # .number.ext
+            r'(\d{2,})\.([\w]+)$',  # number.ext (en az 2 basamaklı)
+
+            # Additional patterns for complex names
+            r'[._](\d{2,})[._]',  # number between dots/underscores
+            r'(\d{2,})_v\d+\.([\w]+)$',  # number_version.ext
+            r'_v\d+_(\d+)\.([\w]+)$',  # version_number.ext
         ]
 
-        frame_match = None
+        base_name = None
+        frame_num = None
+        ext_match = None
+
+        # Try each pattern until we find a match
         for pattern in frame_patterns:
             match = re.search(pattern, file)
             if match:
-                frame_match = match
+                frame_num = int(match.group(1))
+
+                # Extract extension based on pattern
+                if len(match.groups()) > 1:
+                    ext_match = match.group(2)
+                else:
+                    # If pattern doesn't capture extension, get it directly
+                    ext_match = os.path.splitext(file)[1][1:]  # Remove leading dot
+
+                # Get base name by removing the frame number and extension
+                full_match = match.group(0)
+                base_name = file[:file.index(full_match)] + file[file.index(full_match):].replace(match.group(1),
+                                                                                                  '%04d')
                 break
 
-        if frame_match:
-            frame_num = int(frame_match.group(1))
-            ext = frame_match.group(2)
-
-            # Base name extraction'ı geliştir
-            base_name = file[:frame_match.start()]
-            display_name = base_name.rstrip('._-')
-
+        if frame_num is not None and base_name is not None:
+            # Create plate key using the folder path and base name
+            # This helps group frames that belong to the same sequence
             plate_key = (root, base_name, version)
-            seq_path = os.path.normpath(os.path.join(root, f"{base_name}%d.{ext}"))
+            seq_path = os.path.join(root, f"{base_name}.{ext_match}")
+
+            # Clean up display name
+            display_name = os.path.basename(base_name.rstrip('._-'))
 
             if plate_key not in plates:
                 plates[plate_key] = {
                     'min_frame': frame_num,
                     'max_frame': frame_num,
-                    'ext': ext,
+                    'ext': ext_match,
                     'path': seq_path,
                     'display_name': display_name,
                     'frames': {frame_num},
-                    'first_frame_path': file_path  # Thumbnail için ilk frame'i sakla
+                    'first_frame_path': file_path
                 }
             else:
-                plates[plate_key]['min_frame'] = min(plates[plate_key]['min_frame'], frame_num)
-                plates[plate_key]['max_frame'] = max(plates[plate_key]['max_frame'], frame_num)
-                plates[plate_key]['frames'].add(frame_num)
+                current_plate = plates[plate_key]
+                current_plate['min_frame'] = min(current_plate['min_frame'], frame_num)
+                current_plate['max_frame'] = max(current_plate['max_frame'], frame_num)
+                current_plate['frames'].add(frame_num)
+
+                # Update first frame path if this is the earliest frame
+                if frame_num < min(current_plate['frames']):
+                    current_plate['first_frame_path'] = file_path
+
         else:
+            # Handle as single frame if no frame number pattern is found
             self._handle_single_frame(file_path, os.path.splitext(file)[0], version)
+
     def _handle_sequence(self, root, file, frame_match, display_name, version, plates):
         """Handle sequence file"""
         base_name = file[:frame_match.start()]
@@ -246,12 +273,14 @@ class PlateList(QTreeWidget):
     def _add_sequences_to_list(self, plates, status_bar=None):
         """Add sequences to the plate list"""
         total_items = len(plates)
+
         for idx, ((root, base_name, version), info) in enumerate(plates.items()):
             try:
                 frames = sorted(list(info['frames']))
-                is_sequential = all(frames[i + 1] - frames[i] == 1 for i in range(len(frames) - 1))
 
-                if len(frames) > 1 and is_sequential:
+                # If we have multiple frames, treat it as a sequence
+                # regardless of frame numbering
+                if len(frames) > 1:
                     plate_info = PlateInfo(info['path'])
                     plate_info.analyze_metadata(self.current_first, self.current_last)
 
@@ -263,7 +292,8 @@ class PlateList(QTreeWidget):
                     item.setText(4, f".{info['ext']}")
                     item.setText(5, plate_info.colorspace if plate_info.colorspace else "N/A")
                     item.setText(6, get_sequence_size(
-                        info['path'], base_name,
+                        info['path'],
+                        base_name,
                         f"{info['min_frame']}-{info['max_frame']}",
                         f".{info['ext']}"
                     ))
@@ -272,11 +302,10 @@ class PlateList(QTreeWidget):
                     # Thumbnail için ilk frame'in yolunu kullan
                     item.setData(0, Qt.UserRole, info.get('first_frame_path', info['path']))
                 else:
-                    for frame in frames:
-                        single_file = f"{base_name}{frame}.{info['ext']}"
-                        single_path = os.path.join(root, single_file)
-                        if os.path.exists(single_path):
-                            self._handle_single_frame(single_path, info['display_name'], version)
+                    # Single frame case
+                    single_path = os.path.join(root, f"{base_name}.{info['ext']}")
+                    if os.path.exists(single_path):
+                        self._handle_single_frame(single_path, info['display_name'], version)
 
                 if status_bar:
                     progress = int((idx + 1) / total_items * 100)
@@ -342,12 +371,12 @@ class PlateList(QTreeWidget):
         """Apply filters to the plate list"""
         if not hasattr(self, 'parent'):
             return
-            
+
         # Get filter values from filter panel
         filter_panel = self.parent().findChild(FilterPanel)
         if not filter_panel:
             return
-            
+
         filters = filter_panel.get_filter_values()
         search_text = filters['search']
         format_filter = filters['format']
