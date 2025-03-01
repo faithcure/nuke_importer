@@ -108,7 +108,7 @@ This project is licensed under the Apache License - see the LICENSE file for det
 
 ## 📞 Support
 
-- Issues: [GitHub Issues](https://github.com/yourusername/nuke-importer/issues)
+- Issues: [GitHub Issues]([https://github.com/yourusername/nuke-importer/issues](https://github.com/faithcure/nuke_importer/issues))
 
 ---
 Made with ❤️ for the VFX community
