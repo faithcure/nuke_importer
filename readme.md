@@ -1,26 +1,27 @@
 # 🎬 Nuke Importer
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![License](https://img.shields.io/badge/license-Apache%202.0-blue)
 ![Python](https://img.shields.io/badge/python-3.7+-blue.svg)
 ![Nuke](https://img.shields.io/badge/nuke-13.0+-green.svg)
 
-A powerful and user-friendly asset management tool for Nuke, designed to streamline your workflow with advanced import capabilities for various media formats.
+A powerful and user-friendly asset importer tool for Nuke, designed to streamline your workflow with advanced import capabilities for various media formats.
 
-## ✨ Features
+# ✨ Features
+
+## 🌟 Examples
+
+
 
 ### 🎯 Core Functionality
 - **Smart Scanning**: Recursively scans directories for supported media files
 - **Sequence Detection**: Automatically identifies and groups image sequences
-- **Frame Range Management**: Intelligent handling of frame ranges and versioning
-- **3D Model Support**: Preview and import FBX, OBJ, and Alembic files
-- **Metadata Extraction**: Automatic colorspace and resolution detection
+- **3D Model Support**: Preview and import FBX, OBJ, USD
+- **Metadata Extraction**: Get Low Metadata LMB
 
 ### 🎨 Media Support
 - **Image Sequences**: EXR, DPX, JPEG, PNG, TIFF, and more
-- **Video Formats**: MOV, MP4, MXF, ProRes
-- **3D Models**: FBX, OBJ, ABC (Alembic)
-- **Deep Image Support**: Deep EXR, DTEX
-- **Industry Standards**: ACES, OCIO integration
+- **Video Formats**: MOV, MP4
+- **3D Models**: FBX, OBJ, USD
 
 ### 💻 User Interface
 - **Thumbnail Preview**: Real-time preview of images, sequences, and 3D models
@@ -28,12 +29,22 @@ A powerful and user-friendly asset management tool for Nuke, designed to streaml
 - **Grid Layout**: Organized node placement in Nuke
 - **Progress Tracking**: Real-time feedback for operations
 - **Context Menus**: Quick access to common operations
+- 
+## ⚠️ Important Notes
 
-## 🚀 Installation
+1. **Project Directory Requirement**: The Project Directory must be set within Nuke. This plugin only scans folders within the configured project directory.
+
+2. **No Content Without Project Directory**: If the project directory is not set, the plugin will not display any content.
+
+3. **Scanning Scope**: This plugin only scans units under the project directory and doesn't access files in other locations.
+
+> 💡 To set the project directory: Open the `Project Settings` panel in Nuke and enter a valid directory path in the `Project Directory` field.
+> 
+## 🚀 Installation (FOR DEVELOPERS)
 
 ```bash
 git clone https://github.com/faithcure/nuke_importer.git
-cd nuke-importer
+cd nuke_importer
 pip install -r requirements.txt
 ```
 
@@ -45,35 +56,47 @@ pip install -r requirements.txt
 - Nuke >= 13.0
 - OpenCv 
 
-## 🔧 Usage
-
+## 🔧 Usage (FOR ALL)
+#pip install open3d, opencv-python # if you need.
+## ⚠️ Critical Installation Requirements
+Before using this plugin, you must install required dependencies within Nuke's Python environment. Without these installations, the plugin **will not function properly** - specifically, thumbnails and 3D previews will fail to load.
+- open terminal or cmd and run these:
+### Windows
+```batch
+"C:\Program Files\Nuke14.1v3\python.exe" -m pip install open3d
+"C:\Program Files\Nuke14.1v3\python.exe" -m pip install opencv-python
+```
+### macOS
+```batch
+/Applications/Nuke14.1v3/Nuke14.1v3.app/Contents/MacOS/python -m pip install open3d
+/Applications/Nuke14.1v3/Nuke14.1v3.app/Contents/MacOS/python -m pip install opencv-python
+```
+### Linux
+```batch
+/opt/Nuke14.1v3/python -m pip install open3d
+/opt/Nuke14.1v3/python -m pip install opencv-python
+```
+Paste "nuke_importer" folder in to ".nuke" path or where you want.
+- menu.py: 
 ```python
 import nuke_importer
+import importlib # if you want!
+# Nuke Importer
+def start_nuke_importer():
+   importlib.reload(nuke_importer) # if you want!
+   nuke_importer.start()
+i.addCommand("Plate Importer --online", "nuke_importer.start()")
 
-# Start the application
-nuke_importer.start()
 ```
-
-## 🌟 Examples
-
-### Basic Import
+- init.py:
 ```python
-# Import a sequence
-read_node = create_read_node(
-    file_path="path/to/sequence.%04d.exr",
-    frame_range="1001-1100",
-    colorspace="ACES"
-)
-
-# Import 3D model
-geo_node = create_readgeo_node(
-    file_path="path/to/model.fbx"
-)
+# add folder to he plugin path
+nuke.pluginAddPath('nuke_importer')
 ```
 
 ## 📝 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License - see the LICENSE file for details.
 
 ## 🤝 Contributing
 
@@ -85,9 +108,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- Documentation: [Wiki](https://github.com/yourusername/nuke-importer/wiki)
 - Issues: [GitHub Issues](https://github.com/yourusername/nuke-importer/issues)
-- Email: your.email@example.com
 
 ---
 Made with ❤️ for the VFX community
