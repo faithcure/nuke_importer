@@ -68,7 +68,6 @@ class PlateList(QTreeWidget):
     def setup_connections(self):
         """Setup signal connections"""
         self.customContextMenuRequested.connect(self.show_context_menu)
-        self.itemDoubleClicked.connect(self.on_plate_double_clicked)
         self.itemSelectionChanged.connect(self.on_selection_changed)
 
     def on_selection_changed(self):
@@ -77,7 +76,7 @@ class PlateList(QTreeWidget):
             set_root_frame_range(self.current_first, self.current_last)
 
     def on_plate_double_clicked(self, item):
-        """Handle double click on plate item"""
+        """Handle double click on plate item - DISABLED"""
         if not item:
             return
 
@@ -474,8 +473,10 @@ class PlateList(QTreeWidget):
         if not items:
             return
 
-        # Grid layout settings
-        spacing = 120  # Node spacing
+        # Improved grid layout settings
+        spacing_x = 250  # Increased horizontal node spacing
+        spacing_y = 200  # Increased vertical node spacing
+        backdrop_padding = 30  # Padding around nodes inside backdrop
         columns = 5  # Maximum nodes per row
         base_x = 0
         base_y = 0
@@ -487,11 +488,11 @@ class PlateList(QTreeWidget):
                 folder_path = os.path.dirname(file_path)
                 file_ext = item.text(4).lower()
 
-                # Calculate grid position
+                # Calculate grid position with better spacing
                 col = idx % columns
                 row = idx // columns
-                pos_x = base_x + (col * spacing)
-                pos_y = base_y - (row * spacing)
+                pos_x = base_x + (col * spacing_x)
+                pos_y = base_y - (row * spacing_y)
 
                 # Get clean plate name (without extension and pattern)
                 plate_name = os.path.splitext(item.text(0))[0]  # Remove extension
@@ -499,33 +500,48 @@ class PlateList(QTreeWidget):
                 plate_name = plate_name.replace('####', '').replace('%04d', '')
                 plate_name = plate_name.rstrip('._- ')  # Remove trailing separators
 
-                # Create backdrop first
-                backdrop = nuke.nodes.BackdropNode(
-                    xpos=pos_x - 50,
-                    ypos=pos_y - 50,
-                    bdwidth=180,
-                    bdheight=140,
-                    tile_color=int(0x7533C2FF),  # Purple color
-                    note_font_size=24,
-                    label=plate_name  # Clean plate name
-                )
+                # Track nodes created for this plate
+                plate_nodes = []
 
                 # Check if it's a 3D file
                 if file_ext in ['.fbx', '.obj', '.abc']:
-                    node = create_readgeo_node(file_path)
-                    node.setXYpos(pos_x, pos_y)
-                    created_nodes.append(node)
+                    node_result = create_readgeo_node(file_path, pos_x, pos_y)
+                    if node_result:
+                        for node_key, node in node_result.items():
+                            plate_nodes.append(node)
+                        created_nodes.extend(plate_nodes)
                 else:
-                    for seq in nuke.getFileNameList(folder_path):
-                        read_node = nuke.createNode("Read")
-                        read_node.setXYpos(pos_x, pos_y)
-                        seq_path = os.path.normpath(folder_path + "/" + seq)
-                        read_node.knob("file").fromUserText(seq_path.replace("#", "%04d"))
+                    # Handle normal read nodes
+                    read_node = create_read_node(file_path,
+                                                 frame_range=item.text(2),
+                                                 colorspace=item.text(5),
+                                                 pos_x=pos_x,
+                                                 pos_y=pos_y)
+                    if read_node:
+                        plate_nodes.append(read_node)
                         created_nodes.append(read_node)
 
-                        # Update backdrop size if needed
-                        if len(created_nodes) > 1:
-                            backdrop['bdwidth'].setValue(200)
+                # Only create backdrop if we successfully created nodes
+                if plate_nodes:
+                    # Calculate backdrop bounds
+                    min_x = min(node.xpos() for node in plate_nodes)
+                    min_y = min(node.ypos() for node in plate_nodes)
+                    max_x = max(node.xpos() + node.screenWidth() for node in plate_nodes)
+                    max_y = max(node.ypos() + node.screenHeight() for node in plate_nodes)
+
+                    # Create backdrop with proper size to contain all nodes
+                    backdrop = nuke.nodes.BackdropNode(
+                        xpos=min_x - backdrop_padding,
+                        ypos=min_y - backdrop_padding,
+                        bdwidth=(max_x - min_x) + (backdrop_padding * 2),
+                        bdheight=(max_y - min_y) + (backdrop_padding * 2) + 40,  # Extra space for label
+                        tile_color=int(0x7533C2FF),  # Purple color
+                        note_font_size=24,
+                        label=plate_name  # Clean plate name
+                    )
+
+                    # Add backdrop to created nodes list
+                    created_nodes.append(backdrop)
 
             except Exception as e:
                 print(f"Error importing plate {item.text(0)}: {str(e)}")
