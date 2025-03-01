@@ -9,7 +9,7 @@ A powerful and user-friendly asset importer tool for Nuke, designed to streamlin
 # ✨ Features
 
 ## 🌟 Examples
-
+![Nuke Importer Preview](https://github.com/faithcure/nuke_importer/blob/master/thumbnail1.jpg)
 
 
 ### 🎯 Core Functionality
